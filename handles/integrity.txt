@@ -1,0 +1,159 @@
+/* ?-? ????????? ?????? ???????????,
+?????????? ?????, ?????-??? ???????? ??????*/
+EXPORT_INT GetProcessIntegrityLevel(int _pid)
+{
+	HANDLE hToken;
+	HANDLE hProcess;
+
+	DWORD dwLengthNeeded;
+	DWORD dwError = ERROR_SUCCESS;
+
+	PTOKEN_MANDATORY_LABEL pTIL = NULL;
+	LPWSTR pStringSid;
+	DWORD dwIntegrityLevel;
+
+	/*????????? ????????? ? ??*/
+	hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, _pid);
+	/*????????? ????? ????????*/
+	if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken))
+	{
+		// Get the Integrity level.
+		if (!GetTokenInformation(hToken, TokenIntegrityLevel,
+			NULL, 0, &dwLengthNeeded))
+		{
+			/*???? ?????? ????????*/
+			dwError = GetLastError();
+			if (dwError == ERROR_INSUFFICIENT_BUFFER)
+			{
+				pTIL = (PTOKEN_MANDATORY_LABEL)LocalAlloc(0,
+					dwLengthNeeded);
+				if (pTIL != NULL)
+				{
+					/*???????? ?????????? ??????, ??? ????*/
+					if (GetTokenInformation(hToken, TokenIntegrityLevel,
+						pTIL, dwLengthNeeded, &dwLengthNeeded))
+					{
+						/*????????? ?????????? ?? ????*/
+						dwIntegrityLevel = *GetSidSubAuthority(pTIL->Label.Sid,
+							(DWORD)(UCHAR)(*GetSidSubAuthorityCount(pTIL->Label.Sid) - 1));
+						/*?????????? ??????? ???-?? ?? ?????, ?????????? ???-?*/
+						if (dwIntegrityLevel == SECURITY_MANDATORY_LOW_RID)
+						{
+							// Low Integrity
+							return 1;
+						}
+						else if (dwIntegrityLevel >= SECURITY_MANDATORY_MEDIUM_RID &&
+							dwIntegrityLevel < SECURITY_MANDATORY_HIGH_RID)
+						{
+							// Medium Integrity
+							return 2;
+						}
+						else if (dwIntegrityLevel >= SECURITY_MANDATORY_HIGH_RID)
+						{
+							// High Integrity
+							return 3;
+						}
+						else if (dwIntegrityLevel >= SECURITY_MANDATORY_SYSTEM_RID)
+						{
+							// System Integrity
+							return 4;
+						}
+					}
+					LocalFree(pTIL);
+				}
+			}
+		}
+		CloseHandle(hToken);
+	}
+}
+
+/*?-? ????????? ??-?? ??????????? ????????*/
+EXPORT_INT SetProcessIntegrityLevel(int PID, int NewProcessIntegrityLevel)
+{
+	HANDLE ProcHandle = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, PID);
+	if (ProcHandle == NULL)
+		return GetLastError();
+
+	HANDLE ProcSecToken;
+	OpenProcessToken(ProcHandle, TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &ProcSecToken);
+
+	int error = GetLastError();
+	if (ProcSecToken == NULL || error == 5)
+	{
+		CloseHandle(ProcHandle);
+		return error;
+	}
+
+	DWORD MLabel_size;
+	GetTokenInformation(ProcSecToken, TokenIntegrityLevel, NULL, 0, &MLabel_size);
+
+	error = GetLastError();
+	if (error != ERROR_INSUFFICIENT_BUFFER && error != ERROR_SUCCESS)
+	{
+		CloseHandle(ProcSecToken);
+		CloseHandle(ProcHandle);
+		return error;
+	}
+
+	TOKEN_MANDATORY_LABEL* MLabel = (TOKEN_MANDATORY_LABEL*)malloc(MLabel_size);
+
+	GetTokenInformation(ProcSecToken, TokenIntegrityLevel, MLabel, MLabel_size, &MLabel_size);
+
+	error = GetLastError();
+	if (error != ERROR_INSUFFICIENT_BUFFER && error != ERROR_SUCCESS)
+	{
+		free(MLabel);
+		CloseHandle(ProcSecToken);
+		CloseHandle(ProcHandle);
+		return error;
+	}
+
+	DWORD dwIntegrityLevel = *GetSidSubAuthority(MLabel->Label.Sid, (DWORD)(UCHAR)*GetSidSubAuthorityCount(MLabel->Label.Sid) - 1);
+
+	char* strSID = new char[30];
+
+	ConvertSidToStringSidA(MLabel->Label.Sid, &strSID);
+
+	switch (NewProcessIntegrityLevel)
+	{
+	case 1:
+		NewProcessIntegrityLevel = SECURITY_MANDATORY_LOW_RID;
+		break;
+	case 2:
+		NewProcessIntegrityLevel = SECURITY_MANDATORY_MEDIUM_RID;
+		break;
+	case 3:
+		NewProcessIntegrityLevel = SECURITY_MANDATORY_HIGH_RID;
+		break;
+	case 4:
+		NewProcessIntegrityLevel = SECURITY_MANDATORY_SYSTEM_RID;
+		break;
+	default:
+		LocalFree(strSID);
+		free(MLabel);
+		CloseHandle(ProcSecToken);
+		CloseHandle(ProcHandle);
+		return 1;
+	}
+
+	char* strIntLevel = new char[7];
+
+	_ltoa(dwIntegrityLevel, strIntLevel, 10);// перевод действующего уровня целостности в строку
+
+	char* IntegrityLevelPtr = strstr(strSID, strIntLevel);// поиск действующего уровня целостности в SID
+
+	_ltoa(NewProcessIntegrityLevel, strIntLevel, 10);// перевод запрашиваемого уровня целостности в строку
+
+	strcpy(IntegrityLevelPtr, strIntLevel);// замена уровня целостности в SID
+
+	ConvertStringSidToSidA(strSID, &(MLabel->Label.Sid));// перевод SID в числовое значение
+
+	SetTokenInformation(ProcSecToken, TokenIntegrityLevel, MLabel, MLabel_size);
+
+	delete[] strIntLevel;
+	LocalFree(strSID);
+	free(MLabel);
+	CloseHandle(ProcSecToken);
+	CloseHandle(ProcHandle);
+	return GetLastError();
+}
