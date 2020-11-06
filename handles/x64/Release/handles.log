@@ -1,9 +1,0 @@
-﻿  handles.cpp
-handles.cpp(352): warning C4101: 'pStringSid': unreferenced local variable
-  src.cpp
-     Creating library D:\Course 3\MBKS\Materials\2\handles\x64\Release\handles.lib and object D:\Course 3\MBKS\Materials\2\handles\x64\Release\handles.exp
-  Generating code
-d:\course 3\mbks\materials\2\handles\handles\handles.cpp(408): warning C4715: 'GetProcessIntegrityLevel': not all control paths return a value
-  All 130 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
-  Finished generating code
-  handles.vcxproj -> D:\Course 3\MBKS\Materials\2\handles\x64\Release\handles.exe
